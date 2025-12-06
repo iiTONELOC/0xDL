@@ -31,7 +31,7 @@ Or add it manually to `Cargo.toml`:
 
 ```toml
 [dependencies]
-oxdl = "0.1.2"
+oxdl = "0.1.3"
 ```
 
 ## Features

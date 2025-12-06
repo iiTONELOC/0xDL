@@ -5,7 +5,7 @@ use std::{
     fs::{self, File},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use tempfile::NamedTempFile;
@@ -18,7 +18,7 @@ use tokio::{
 pub type DownloadResult = Result<(), DownloadError>;
 
 const _TEST_URLS: [&str; 2] = [
-    "https://raw.githubusercontent.com/iiTONELOC//refs/heads/main/LICENSE.md",
+    "https://raw.githubusercontent.com/iiTONELOC/0xdl/refs/heads/main/LICENSE.md",
     "https://raw.githubusercontent.com/iiTONELOC/0xdl/refs/heads/main/README.md",
 ];
 
@@ -54,6 +54,7 @@ pub async fn download_file(
     on_update: Option<Box<dyn Fn(f32) + Send + Sync + 'static>>,
     final_path: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let exited = Arc::new(AtomicBool::new(false));
     // HEAD request
     let size = get_file_size(url).await?;
 
@@ -70,6 +71,7 @@ pub async fn download_file(
     // progress callback loop
     if let Some(cb) = on_update {
         let p = progress.clone();
+        let e = exited.clone();
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_millis(16));
             tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -86,8 +88,8 @@ pub async fn download_file(
                     break;
                 }
             }
-
             cb(100.0);
+            e.store(true, Ordering::Relaxed);
         });
     }
 
@@ -101,6 +103,11 @@ pub async fn download_file(
 
     // SHA256 check
     if let Some(expected) = sha256 {
+        // wait for the progress callback to exit
+        while !exited.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
         // print out a message indicating that verification is in progress
         println!("\nVerifying SHA256 hash...");
         let ok = verify_file_sha256(&temp_path, &expected).await?;
@@ -220,8 +227,9 @@ pub async fn download_with_updates(
 }
 
 // ---------------------
-// TESTS
+// TESTS (FULL FILE WITH FIXES)
 // ---------------------
+
 #[cfg(feature = "tests")]
 #[cfg(test)]
 mod tests {
@@ -284,6 +292,8 @@ mod tests {
 #[cfg(test)]
 mod net_tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     #[tokio::test]
     async fn test_download_file() {
@@ -353,7 +363,7 @@ mod net_tests {
         let result = download_with_updates(url, path, None, None).await;
 
         assert!(result.is_ok());
-        assert!(std::path::Path::new(path).exists());
+        assert!(Path::new(path).exists());
         let _ = std::fs::remove_file(path);
     }
 
@@ -361,12 +371,12 @@ mod net_tests {
     async fn test_real_download_with_hash() {
         let url = _TEST_URLS[1];
         let path = "test_download_with_hash.bin";
-        let sha256 = "10eeae66ba2fc26db767a28fe29a54de7a471eec74d4b24adf42ae46d7b8bb5a";
+        let sha256 = "c7f262ffef3b3ad983cfddf4c41dc465ba6697e1396aaacba7212655a52627b5";
 
         let result = download_with_updates(url, path, None, Some(sha256)).await;
 
         assert!(result.is_ok());
-        assert!(std::path::Path::new(path).exists());
+        assert!(Path::new(path).exists());
 
         let _ = std::fs::remove_file(path);
     }
@@ -380,7 +390,7 @@ mod net_tests {
         let result = download_with_updates(url, path, None, Some(bad_sha)).await;
 
         assert!(result.is_err());
-        assert!(!std::path::Path::new(path).exists());
+        assert!(!Path::new(path).exists());
     }
 }
 
@@ -388,6 +398,8 @@ mod net_tests {
 #[cfg(test)]
 mod iso_tests {
     use super::*;
+    use std::path::Path;
+
     const DL_URL: &str = "https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso";
     const DL_SHA256: &str = "6d8f5afc78c0c66812d7272cde7c8b98be7eb54401ceb045400db05eb5ae6d22";
 
@@ -395,17 +407,19 @@ mod iso_tests {
     async fn test_download_opnsense_iso() {
         let path = "proxmox-ve_9.1-1.iso";
         let file_size = get_file_size(DL_URL).await.unwrap();
-        // print file name, and size in MB
+
         println!("Downloading {} ({} MB)\n", path, file_size / (1024 * 1024));
+
         let start = std::time::Instant::now();
         let result = download_with_updates(DL_URL, path, None, Some(DL_SHA256)).await;
         let duration = start.elapsed();
+
         println!("\nDownload completed in {:.2?} seconds", duration);
-        // print statistics about download speed in Mbps
         let speed_mbps = (file_size as f64 * 8.0) / (duration.as_secs_f64() * 1_000_000.0);
         println!("Average download speed: {:.2} Mbps\n", speed_mbps);
+
         assert!(result.is_ok());
-        assert!(std::path::Path::new(path).exists());
+        assert!(Path::new(path).exists());
         let _ = std::fs::remove_file(path);
     }
 }
