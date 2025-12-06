@@ -25,14 +25,14 @@ Built on **Tokio** and **reqwest**, it offers:
 Install 0xDL using Cargo:
 
 ```bash
-cargo add 0xdl
+cargo add oxdl
 ```
 
 Or add it manually to `Cargo.toml`:
 
 ```toml
 [dependencies]
-0xdl = "0.1.0"
+oxdl = "0.1.0"
 ```
 
 ## Features
