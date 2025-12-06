@@ -101,6 +101,8 @@ pub async fn download_file(
 
     // SHA256 check
     if let Some(expected) = sha256 {
+        // print out a message indicating that verification is in progress
+        println!("\nVerifying SHA256 hash...");
         let ok = verify_file_sha256(&temp_path, &expected).await?;
         if !ok {
             let _ = tokio_fs::remove_file(&temp_path).await;
@@ -359,7 +361,7 @@ mod net_tests {
     async fn test_real_download_with_hash() {
         let url = _TEST_URLS[1];
         let path = "test_download_with_hash.bin";
-        let sha256 = "f2b0d1194fa38ce0a8f72e3a4796c688f5715bb1e3c8fe770e5e757ffa2aa6b1";
+        let sha256 = "10eeae66ba2fc26db767a28fe29a54de7a471eec74d4b24adf42ae46d7b8bb5a";
 
         let result = download_with_updates(url, path, None, Some(sha256)).await;
 

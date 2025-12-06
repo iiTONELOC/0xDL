@@ -2,14 +2,13 @@
 
 ![language](https://img.shields.io/badge/language-Rust-orange)
 [![Crates.io](https://img.shields.io/crates/v/oxdl)](https://crates.io/crates/oxdl)
-[![Documentation](https://docs.rs/oxdl/badge.svg)](https://docs.rs/oxdl)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 
 ---
 
 A Rust library for fast, reliable asynchronous file downloading.
 
-![Screenshot](./loading.png)
+![Loading bar](./loading.png)
 
 0xDL provides a clean, minimal abstraction for downloading large files over HTTP/S using asynchronous Rust.
 
@@ -32,7 +31,7 @@ Or add it manually to `Cargo.toml`:
 
 ```toml
 [dependencies]
-oxdl = "0.1.0"
+oxdl = "0.1.2"
 ```
 
 ## Features
@@ -42,6 +41,10 @@ oxdl = "0.1.0"
 - Optional SHA‑256 integrity verification
 - Automatic cleanup of failed downloads
 - Atomic final file write
+
+## Screenshot
+
+![screenshot](./screenshot.png)
 
 ## Usage
 
@@ -148,7 +151,7 @@ cargo test --features all-tests-w-iso-dl
 ```
 
 ```bash
-cargo test --features dl-iso-test -- --nocapture
+cargo test --features dl-iso-test -- --nocapture --quiet
 ```
 
 ## License
