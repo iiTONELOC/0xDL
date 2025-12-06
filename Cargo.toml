@@ -2,6 +2,8 @@
 name = "oxdl"
 version = "0.1.0"
 edition = "2024"
+description = "Asynchronous downloader with progress bars and SHA256 verification."
+license = "MIT"
 include = [
     "src/**",
     "Cargo.toml",
