@@ -1,8 +1,8 @@
 # 0xDL
 
 ![language](https://img.shields.io/badge/language-Rust-orange)
-[![Crates.io](https://img.shields.io/crates/v/0xdl)](https://crates.io/crates/0xdl)
-[![Documentation](https://docs.rs/0xdl/badge.svg)](https://docs.rs/0xdl)
+[![Crates.io](https://img.shields.io/crates/v/oxdl)](https://crates.io/crates/oxdl)
+[![Documentation](https://docs.rs/oxdl/badge.svg)](https://docs.rs/oxdl)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 
 ---

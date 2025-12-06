@@ -1,9 +1,12 @@
 [package]
 name = "oxdl"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Asynchronous downloader with progress bars and SHA256 verification."
 license = "MIT"
+authors = ["Anthony Tropeano anthonytropeano@me.com"]
+homepage = "https://github.com/iiTONELOC/0xDL"
+repository = "https://github.com/iiTONELOC/0xDL"
 include = [
     "src/**",
     "Cargo.toml",
@@ -11,8 +14,7 @@ include = [
     "LICENSE",
 ]
 
-[lib]
-name = "0xdl"        
+[lib]  
 doctest = false
 
 [dependencies]

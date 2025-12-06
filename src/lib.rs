@@ -1,3 +1,6 @@
 pub mod downloader;
 mod progress_bar;
-mod validator;
+pub mod validator;
+
+pub use downloader::*;
+pub use validator::*;
