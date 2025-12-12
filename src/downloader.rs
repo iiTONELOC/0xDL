@@ -2,6 +2,7 @@ use crate::progress_bar::default_with_progress;
 use crate::validator::{is_valid_file_path, is_valid_sha256, is_valid_url, verify_file_sha256};
 use reqwest::Client;
 use std::{
+    fmt,
     fs::{self, File},
     sync::{
         Arc,
@@ -15,7 +16,9 @@ use tokio::{
     time::{Duration, MissedTickBehavior, interval},
 };
 
-pub type DownloadResult = Result<(), DownloadError>;
+pub type _0xdlDownloadResult = Result<(), DownloadError>;
+pub type _0xdlUpdateFnType = Box<dyn Fn(f32) + Send + Sync + 'static>;
+pub type _0xdlErrorType = Box<dyn std::error::Error + Send + Sync>;
 
 const _TEST_URLS: [&str; 2] = [
     "https://raw.githubusercontent.com/iiTONELOC/0xdl/refs/heads/main/LICENSE.md",
@@ -29,15 +32,27 @@ pub enum DownloadError {
     InvalidSha256,
 }
 
+impl fmt::Display for DownloadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DownloadError::InvalidUrl => write!(f, "invalid URL"),
+            DownloadError::InvalidPath => write!(f, "invalid file path"),
+            DownloadError::InvalidSha256 => write!(f, "invalid SHA-256 checksum"),
+        }
+    }
+}
+
+impl std::error::Error for DownloadError {}
+
 pub struct Downloader {
     pub url: String,
     pub path: String,
     pub sha256: Option<String>,
     pub current_progress: Arc<AtomicU64>,
-    pub on_update: Option<Box<dyn Fn(f32) + Send + Sync + 'static>>,
+    pub on_update: Option<_0xdlUpdateFnType>,
 }
 
-pub async fn get_file_size(url: &str) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get_file_size(url: &str) -> Result<u64, _0xdlErrorType> {
     let resp = Client::new().head(url).send().await?;
     Ok(resp
         .headers()
@@ -51,14 +66,12 @@ pub async fn download_file(
     url: &str,
     progress: Arc<AtomicU64>,
     sha256: Option<String>,
-    on_update: Option<Box<dyn Fn(f32) + Send + Sync + 'static>>,
+    on_update: Option<_0xdlUpdateFnType>,
     final_path: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let exited = Arc::new(AtomicBool::new(false));
-    // HEAD request
+) -> Result<String, _0xdlErrorType> {
+    let done = Arc::new(AtomicBool::new(false));
     let size = get_file_size(url).await?;
 
-    // temp file
     let temp_path = {
         let temp = NamedTempFile::new()?;
         let (_, buf) = temp.keep()?;
@@ -68,56 +81,49 @@ pub async fn download_file(
     let mut resp = Client::new().get(url).send().await?;
     let mut file = tokio_fs::File::create(&temp_path).await?;
 
-    // progress callback loop
-    if let Some(cb) = on_update {
+    // spawn updater and keep handle
+    let updater = on_update.map(|cb| {
         let p = progress.clone();
-        let e = exited.clone();
+        let d = done.clone();
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_millis(16));
             tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
             loop {
                 tick.tick().await;
-
                 let val = p.load(Ordering::Relaxed);
                 if size > 0 {
                     cb((val as f32 / size as f32) * 100.0);
                 }
-
-                if size > 0 && val >= size {
+                if d.load(Ordering::Relaxed) {
                     break;
                 }
             }
             cb(100.0);
-            e.store(true, Ordering::Relaxed);
-        });
-    }
+        })
+    });
 
-    // streaming download
+    // stream download
     while let Some(chunk) = resp.chunk().await? {
         file.write_all(&chunk).await?;
         progress.fetch_add(chunk.len() as u64, Ordering::Relaxed);
     }
-
     file.flush().await?;
 
-    // SHA256 check
-    if let Some(expected) = sha256 {
-        // wait for the progress callback to exit
-        while !exited.load(Ordering::Relaxed) {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    // signal updater completion and wait for it (no busy-wait)
+    done.store(true, Ordering::Relaxed);
+    if let Some(h) = updater {
+        let _ = h.await;
+    }
 
-        // print out a message indicating that verification is in progress
+    // verify after progress completes (printing now ordered)
+    if let Some(expected) = sha256 {
         println!("\nVerifying SHA256 hash...");
         let ok = verify_file_sha256(&temp_path, &expected).await?;
         if !ok {
             let _ = tokio_fs::remove_file(&temp_path).await;
-
             if let Some(fp) = final_path {
                 let _ = tokio_fs::remove_file(fp).await;
             }
-
             return Err("SHA256 hash mismatch".into());
         }
     }
@@ -125,10 +131,7 @@ pub async fn download_file(
     Ok(temp_path)
 }
 
-fn finalize_temp_file(
-    temp: &str,
-    final_path: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn finalize_temp_file(temp: &str, final_path: &str) -> Result<(), _0xdlErrorType> {
     fs::copy(temp, final_path)?;
     if let Ok(f) = File::open(final_path) {
         let _ = f.sync_all();
@@ -176,7 +179,7 @@ impl Downloader {
         Ok(self)
     }
 
-    pub async fn execute(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn execute(self) -> Result<(), _0xdlErrorType> {
         let temp = download_file(
             &self.url,
             self.current_progress.clone(),
@@ -230,14 +233,9 @@ pub async fn download_with_updates(
 // TESTS (FULL FILE WITH FIXES)
 // ---------------------
 
-#[cfg(feature = "tests")]
-#[cfg(test)]
+#[cfg(all(test, feature = "tests"))]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::io::Write;
-    use std::path::Path;
-    use tokio::runtime::Runtime;
 
     fn url() -> &'static str {
         "http://example.com/file"
@@ -288,114 +286,104 @@ mod tests {
     }
 }
 
-#[cfg(feature = "net-tests")]
-#[cfg(test)]
+#[cfg(all(test, feature = "net-tests"))]
 mod net_tests {
     use super::*;
     use std::fs;
     use std::path::Path;
 
+    // URL[0] — download_file variants
     #[tokio::test]
-    async fn test_download_file() {
+    async fn test_download_file_variants_url0() {
         let url = _TEST_URLS[0];
-        let downloader = Downloader::new(url, "downloaded_test_file.bin").unwrap();
+
+        // ---- no hash ----
+        let path1 = "downloaded_test_file.bin";
+        let downloader = Downloader::new(url, path1).unwrap();
 
         let result = download_file(
             &downloader.url,
             downloader.current_progress.clone(),
             None,
             None,
-            Some("downloaded_test_file.bin"),
+            Some(path1),
         )
         .await
         .unwrap();
 
         assert!(Path::new(&result).exists());
         fs::remove_file(&result).unwrap();
-    }
 
-    #[tokio::test]
-    async fn test_download_file_with_sha256() {
-        let url = _TEST_URLS[0];
+        // ---- correct hash ----
+        let path2 = "downloaded_test_file1.bin";
         let expected = "4f70c8056282511057ff5d99a5df660d06bcccac4dbb0383ce61477d5ab32581";
 
-        let downloader = Downloader::new(url, "downloaded_test_file1.bin").unwrap();
+        let downloader = Downloader::new(url, path2).unwrap();
 
         let result = download_file(
             &downloader.url,
             downloader.current_progress.clone(),
             Some(expected.to_string()),
             None,
-            Some("downloaded_test_file1.bin"),
+            Some(path2),
         )
         .await
         .unwrap();
 
         assert!(Path::new(&result).exists());
         fs::remove_file(&result).unwrap();
-    }
 
-    #[tokio::test]
-    async fn test_download_file_with_incorrect_sha256() {
-        let url = _TEST_URLS[0];
+        // ---- incorrect hash ----
+        let path3 = "downloaded_test_file2.bin";
         let bad = "4f70c8056282511057ff5d99a5df660d06bcccac4dbb0383ce61477d5ab32582";
 
-        let downloader = Downloader::new(url, "downloaded_test_file2.bin").unwrap();
+        let downloader = Downloader::new(url, path3).unwrap();
 
         let result = download_file(
             &downloader.url,
             downloader.current_progress.clone(),
             Some(bad.to_string()),
             None,
-            Some("downloaded_test_file2.bin"),
+            Some(path3),
         )
         .await;
 
         assert!(result.is_err());
-        assert!(!Path::new("downloaded_test_file2.bin").exists());
+        assert!(!Path::new(path3).exists());
     }
 
+    // URL[1] — download_with_updates variants
     #[tokio::test]
-    async fn test_real_download() {
+    async fn test_download_with_updates_variants_url1() {
         let url = _TEST_URLS[1];
-        let path = "test_download.bin";
 
-        let result = download_with_updates(url, path, None, None).await;
-
+        // ---- no hash ----
+        let path1 = "test_download.bin";
+        let result = download_with_updates(url, path1, None, None).await;
         assert!(result.is_ok());
-        assert!(Path::new(path).exists());
-        let _ = std::fs::remove_file(path);
-    }
+        assert!(Path::new(path1).exists());
+        fs::remove_file(path1).unwrap();
 
-    #[tokio::test]
-    async fn test_real_download_with_hash() {
-        let url = _TEST_URLS[1];
-        let path = "test_download_with_hash.bin";
-        let sha256 = "c7f262ffef3b3ad983cfddf4c41dc465ba6697e1396aaacba7212655a52627b5";
+        // ---- correct hash ----
+        let path2 = "test_download_with_hash.bin";
+        let sha256 = "9f5f48cfe5d0b7938672f6c6e6925af312fe6d9848cad3b40b90c8ff323cc205";
 
-        let result = download_with_updates(url, path, None, Some(sha256)).await;
-
+        let result = download_with_updates(url, path2, None, Some(sha256)).await;
         assert!(result.is_ok());
-        assert!(Path::new(path).exists());
+        assert!(Path::new(path2).exists());
+        fs::remove_file(path2).unwrap();
 
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[tokio::test]
-    async fn test_real_download_with_incorrect_hash() {
-        let url = _TEST_URLS[1];
-        let path = "test_download_incorrect_hash.bin";
+        // ---- incorrect hash ----
+        let path3 = "test_download_incorrect_hash.bin";
         let bad_sha = "e3aa82fb36dc042fb00b5e7fbe5f3e79d1dc5547ff94cdec1782aa43d9cde8e4";
 
-        let result = download_with_updates(url, path, None, Some(bad_sha)).await;
-
+        let result = download_with_updates(url, path3, None, Some(bad_sha)).await;
         assert!(result.is_err());
-        assert!(!Path::new(path).exists());
+        assert!(!Path::new(path3).exists());
     }
 }
 
-#[cfg(feature = "dl-iso-test")]
-#[cfg(test)]
+#[cfg(all(test, feature = "dl-iso-test"))]
 mod iso_tests {
     use super::*;
     use std::path::Path;

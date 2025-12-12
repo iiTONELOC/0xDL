@@ -139,6 +139,10 @@ dl.execute().await?;
 ### Running
 
 ```bash
+cargo test --features tests
+```
+
+```bash
 cargo test --features net-tests
 ```
 
@@ -147,11 +151,11 @@ cargo test --features all-tests
 ```
 
 ```bash
-cargo test --features all-tests-w-iso-dl
+cargo test --features all-tests-w-iso-dl -- --nocapture
 ```
 
 ```bash
-cargo test --features dl-iso-test -- --nocapture --quiet
+cargo test --features dl-iso-test -- --nocapture
 ```
 
 ## License

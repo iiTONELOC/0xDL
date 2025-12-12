@@ -53,8 +53,7 @@ pub async fn verify_file_sha256(path: &str, expected_sha256: &str) -> Result<boo
     Ok(sha256_matches(expected_sha256, &computed))
 }
 
-#[cfg(feature = "tests")]
-#[cfg(test)]
+#[cfg(all(feature = "tests", test))]
 mod tests {
     use super::*;
     use tokio::fs::File;

@@ -19,8 +19,7 @@ pub fn default_with_progress(progress: f32) {
     }
 }
 
-#[cfg(feature = "tests")]
-#[cfg(test)]
+#[cfg(all(feature = "tests", test))]
 mod tests {
     use super::*;
 
