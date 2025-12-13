@@ -16,11 +16,35 @@ pub fn is_valid_url(url: &str) -> bool {
 }
 
 pub fn is_valid_file_path(path: &str) -> bool {
-    if path.is_empty() {
+    if path.is_empty() || path.contains('\0') {
         return false;
     }
-    let illegal_chars = ['<', '>', ':', '"', '\\', '|', '?', '*'];
-    !illegal_chars.iter().any(|ch| path.contains(*ch))
+
+    #[cfg(windows)]
+    {
+        let illegal = ['<', '>', ':', '"', '\\', '|', '?', '*'];
+        let reserved = [
+            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        ];
+
+        std::path::Path::new(path).components().all(|c| {
+            if let std::path::Component::Normal(os) = c {
+                let s = os.to_string_lossy();
+                !s.ends_with([' ', '.'])
+                    && !illegal.iter().any(|ch| s.contains(*ch))
+                    && !reserved.iter().any(|r| s.eq_ignore_ascii_case(r))
+            } else {
+                true
+            }
+        })
+    }
+
+    #[cfg(not(windows))]
+    {
+        // POSIX: only NUL and '/' are invalid inside a path component
+        !path.split('/').any(|c| c.contains('\0'))
+    }
 }
 
 pub fn sha256_regex() -> Regex {
@@ -75,7 +99,12 @@ mod tests {
     fn test_is_valid_file_path() {
         assert!(is_valid_file_path("valid_path/file.txt"));
         assert!(!is_valid_file_path(""));
-        assert!(!is_valid_file_path("invalid|path.txt"));
+
+        if cfg!(windows) {
+            assert!(!is_valid_file_path("invalid|path.txt"));
+        } else {
+            assert!(is_valid_file_path("invalid|path.txt"));
+        }
     }
 
     #[test]

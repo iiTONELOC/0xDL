@@ -6,7 +6,7 @@ use std::{
     fs::{self, File},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tempfile::NamedTempFile;
@@ -69,7 +69,6 @@ pub async fn download_file(
     on_update: Option<_0xdlUpdateFnType>,
     final_path: Option<&str>,
 ) -> Result<String, _0xdlErrorType> {
-    let done = Arc::new(AtomicBool::new(false));
     let size = get_file_size(url).await?;
 
     let temp_path = {
@@ -84,7 +83,6 @@ pub async fn download_file(
     // spawn updater and keep handle
     let updater = on_update.map(|cb| {
         let p = progress.clone();
-        let d = done.clone();
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_millis(16));
             tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -94,11 +92,13 @@ pub async fn download_file(
                 if size > 0 {
                     cb((val as f32 / size as f32) * 100.0);
                 }
-                if d.load(Ordering::Relaxed) {
+
+                if val >= size {
                     break;
                 }
             }
             cb(100.0);
+            println!();
         })
     });
 
@@ -109,15 +109,13 @@ pub async fn download_file(
     }
     file.flush().await?;
 
-    // signal updater completion and wait for it (no busy-wait)
-    done.store(true, Ordering::Relaxed);
     if let Some(h) = updater {
         let _ = h.await;
     }
 
     // verify after progress completes (printing now ordered)
     if let Some(expected) = sha256 {
-        println!("\nVerifying SHA256 hash...");
+        println!("Verifying SHA256 hash...");
         let ok = verify_file_sha256(&temp_path, &expected).await?;
         if !ok {
             let _ = tokio_fs::remove_file(&temp_path).await;
@@ -132,8 +130,31 @@ pub async fn download_file(
 }
 
 fn finalize_temp_file(temp: &str, final_path: &str) -> Result<(), _0xdlErrorType> {
-    fs::copy(temp, final_path)?;
-    if let Ok(f) = File::open(final_path) {
+    let final_path = std::path::Path::new(final_path);
+
+    if let Some(parent) = final_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut target = final_path.to_path_buf();
+    if fs::metadata(&target).is_ok() {
+        let mut count = 1;
+        loop {
+            let candidate = target.with_extension(format!(
+                "{}.{}",
+                target.extension().and_then(|e| e.to_str()).unwrap_or(""),
+                count
+            ));
+            if fs::metadata(&candidate).is_err() {
+                target = candidate;
+                break;
+            }
+            count += 1;
+        }
+    }
+
+    fs::copy(temp, &target)?;
+    if let Ok(f) = File::open(&target) {
         let _ = f.sync_all();
     }
     let _ = fs::remove_file(temp);
@@ -260,9 +281,16 @@ mod tests {
     #[test]
     fn test_segmented_downloader_new_invalid_path() {
         assert!(matches!(
-            Downloader::new(url(), "invalid|path.txt"),
+            Downloader::new(url(), "bad\0name.txt"),
             Err(DownloadError::InvalidPath)
         ));
+
+        if cfg!(windows) {
+            assert!(matches!(
+                Downloader::new(url(), "invalid|path.txt"),
+                Err(DownloadError::InvalidPath)
+            ));
+        }
     }
 
     #[test]
