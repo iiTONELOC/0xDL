@@ -1,6 +1,6 @@
 [package]
 name = "oxdl"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "Asynchronous downloader with progress bars and SHA256 verification."
 license = "MIT"

@@ -394,7 +394,7 @@ mod net_tests {
 
         // ---- correct hash ----
         let path2 = "test_download_with_hash.bin";
-        let sha256 = "a33e08b7e39308b9f03b5d1418ba84ccda5d2d4e52bbf4595920d0fd2afa1853";
+        let sha256 = "7fcd8e3e464ff3874cc94327da3b6c269e723f9ec8952ffe6f85ce42c627bd45";
 
         let result = download_with_updates(url, path2, None, Some(sha256)).await;
         assert!(result.is_ok());
